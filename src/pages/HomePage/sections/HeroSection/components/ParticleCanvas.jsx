@@ -63,7 +63,7 @@ function WebGLLifecycle({ onContextStatus }) {
   return null;
 }
 
-export default function ParticleCanvas({ assets, quality, onCanvasReady, onContextStatus }) {
+export default function ParticleCanvas({ assets, quality, onContextStatus }) {
   const cameraPathDistance = assets.planeWidth * heroConfig.camera.initialDistanceFactor;
   const depthSpan = assets.particles.depthSpan;
 
@@ -86,7 +86,6 @@ export default function ParticleCanvas({ assets, quality, onCanvasReady, onConte
         gl.outputColorSpace = THREE.SRGBColorSpace;
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1;
-        onCanvasReady?.();
       }}
     >
       <WebGLLifecycle onContextStatus={onContextStatus} />

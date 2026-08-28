@@ -30,7 +30,6 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
   const [webglAvailable] = useState(() => supportsWebGL());
   const [imageFailed, setImageFailed] = useState(false);
   const [contextStatus, setContextStatus] = useState('ready');
-  const [canvasReady, setCanvasReady] = useState(false);
   const [loaderComplete, setLoaderComplete] = useState(false);
   const animationDisabled = reducedMotion || !webglAvailable;
   const source = imageFailed ? makeFallbackDataUrl() : imageSource;
@@ -47,11 +46,10 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
         {staticMode ? (
           <StaticHero source={source} onError={() => setImageFailed(true)} />
         ) : imageResult.status === 'ready' ? (
-          <UnifiedTimelineProvider ready={heroConfig.timeline.autoStart && canvasReady}>
+          <UnifiedTimelineProvider ready={heroConfig.timeline.autoStart}>
             <ParticleCanvas
               assets={imageResult.assets}
               quality={quality}
-              onCanvasReady={() => setCanvasReady(true)}
               onContextStatus={setContextStatus}
             />
           </UnifiedTimelineProvider>
@@ -60,7 +58,7 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
 
       {!staticMode && !loaderComplete && (
         <Loader
-          ready={imageResult.status === 'ready' && canvasReady}
+          ready={imageResult.status === 'ready'}
           onComplete={() => setLoaderComplete(true)}
         />
       )}
