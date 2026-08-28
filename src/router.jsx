@@ -9,7 +9,7 @@ const WorkPage = lazy(() => import('./pages/WorkPage/WorkPage.jsx'));
 const ContactPage = lazy(() => import('./pages/ContactPage/ContactPage.jsx'));
 
 function RouteLoading() {
-  return <Loader label="Loading page" />;
+  return <Loader />;
 }
 
 function SiteLayout() {

@@ -8,7 +8,7 @@ const HeroSection = lazy(() => import('./sections/HeroSection/HeroSection.jsx'))
 export default function HomePage() {
   return (
     <main className={styles.home}>
-      <Suspense fallback={<Loader label="Loading hero" />}>
+      <Suspense fallback={<Loader />}>
         <HeroSection />
       </Suspense>
       <SectionTwoPlaceholder />

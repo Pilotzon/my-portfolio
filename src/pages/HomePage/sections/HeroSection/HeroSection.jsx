@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { useState } from 'react';
 import Loader from '../../../../components/shared/Loader/Loader.jsx';
 import { heroConfig } from './constants/heroConfig.js';
 import useImageSampler from './hooks/useImageSampler.js';
@@ -7,9 +7,8 @@ import useReducedMotion from './hooks/useReducedMotion.js';
 import { UnifiedTimelineProvider } from './hooks/useUnifiedTimeline.js';
 import { supportsWebGL } from './utils/webgl.js';
 import { makeFallbackDataUrl } from './components/fallbackImage.js';
+import ParticleCanvas from './components/ParticleCanvas.jsx';
 import styles from './HeroSection.module.css';
-
-const ParticleCanvas = lazy(() => import('./components/ParticleCanvas.jsx'));
 
 function StaticHero({ source, onError }) {
   return (
@@ -32,6 +31,7 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
   const [imageFailed, setImageFailed] = useState(false);
   const [contextStatus, setContextStatus] = useState('ready');
   const [canvasReady, setCanvasReady] = useState(false);
+  const [loaderComplete, setLoaderComplete] = useState(false);
   const animationDisabled = reducedMotion || !webglAvailable;
   const source = imageFailed ? makeFallbackDataUrl() : imageSource;
   const imageResult = useImageSampler(imageSource, quality, !animationDisabled);
@@ -46,21 +46,24 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
       <div className={styles.stage}>
         {staticMode ? (
           <StaticHero source={source} onError={() => setImageFailed(true)} />
-        ) : imageResult.status !== 'ready' ? (
-          <Loader label="Preparing image field" />
-        ) : (
+        ) : imageResult.status === 'ready' ? (
           <UnifiedTimelineProvider ready={heroConfig.timeline.autoStart && canvasReady}>
-            <Suspense fallback={<Loader label="Starting field" />}>
-              <ParticleCanvas
-                assets={imageResult.assets}
-                quality={quality}
-                onCanvasReady={() => setCanvasReady(true)}
-                onContextStatus={setContextStatus}
-              />
-            </Suspense>
+            <ParticleCanvas
+              assets={imageResult.assets}
+              quality={quality}
+              onCanvasReady={() => setCanvasReady(true)}
+              onContextStatus={setContextStatus}
+            />
           </UnifiedTimelineProvider>
-        )}
+        ) : null}
       </div>
+
+      {!staticMode && !loaderComplete && (
+        <Loader
+          ready={imageResult.status === 'ready' && canvasReady}
+          onComplete={() => setLoaderComplete(true)}
+        />
+      )}
 
       {contextStatus === 'lost' && !staticMode && (
         <p className={styles.contextNotice} role="status">
