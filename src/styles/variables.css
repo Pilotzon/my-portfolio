@@ -1,0 +1,10 @@
+:root {
+  --color-ink: #f2f0e9;
+  --color-muted: rgba(242, 240, 233, 0.56);
+  --color-night: #050608;
+  --color-line: rgba(242, 240, 233, 0.16);
+  --font-display: 'Space Grotesk', 'Helvetica Neue', sans-serif;
+  --font-body: 'Space Grotesk', 'Helvetica Neue', sans-serif;
+  --page-gutter: clamp(1.25rem, 4vw, 4rem);
+  --nav-height: 4.75rem;
+}

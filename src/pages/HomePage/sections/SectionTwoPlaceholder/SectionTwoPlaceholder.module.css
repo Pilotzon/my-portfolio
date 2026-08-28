@@ -1,0 +1,4 @@
+.section {
+  min-height: 40vh;
+  background: var(--color-night);
+}

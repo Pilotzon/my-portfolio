@@ -1,0 +1,30 @@
+.loader {
+  display: grid;
+  place-items: center;
+  gap: 1rem;
+  min-height: 100svh;
+  color: var(--color-muted);
+  font-size: 0.65rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.mark {
+  width: 0.45rem;
+  height: 0.45rem;
+  background: currentColor;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.7) rotate(45deg);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1) rotate(135deg);
+  }
+}
