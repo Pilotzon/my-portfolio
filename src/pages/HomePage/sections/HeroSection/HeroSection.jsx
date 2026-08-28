@@ -56,6 +56,7 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
   const source = imageFailed ? makeFallbackDataUrl() : imageSource;
   const imageResult = useImageSampler(imageSource, quality, !animationDisabled);
   const staticMode = animationDisabled || imageResult.status === 'error' || canvasFailed;
+  const showCanvas = !staticMode && loaderComplete && imageResult.status === 'ready';
 
   return (
     <section className={styles.hero} aria-labelledby="hero-title">
@@ -66,7 +67,7 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
       <div className={styles.stage}>
         {staticMode ? (
           <StaticHero source={source} onError={() => setImageFailed(true)} />
-        ) : imageResult.status === 'ready' ? (
+        ) : showCanvas ? (
           <HeroCanvasBoundary
             fallback={<StaticHero source={source} onError={() => setImageFailed(true)} />}
             onError={() => setCanvasFailed(true)}
