@@ -1,3 +1,8 @@
+/**
+ * Particle shaders — fine grain, accurate color, true 3D radial wave,
+ * depth-based sizing/atmosphere, circular soft-dot masking.
+ */
+
 export const instancedVertexShader = /* glsl */ `
   attribute vec2 aTargetXY;
   attribute float aZ;
@@ -13,40 +18,40 @@ export const instancedVertexShader = /* glsl */ `
   uniform float uPlaneH;
 
   varying vec2 vUv;
-  varying float vRadial;
-  varying float vProgress;
+  varying vec2 vLocalUv;
   varying float vDepth;
+  varying vec3 vWorldPos;
+  varying float vDepthFade;
 
   void main() {
-    vRadial = aRadial;
-    vProgress = uProgress;
+    vLocalUv = uv;
     vDepth = aZ;
 
-    // 1. SETTLE ANIMATION (0.0 to 0.15)
+    // 1. SETTLE — smooth ease-out (0.0 → 0.15)
     float settle = smoothstep(0.0, 0.15, uProgress);
-    
+
     // 2. PERSPECTIVE UN-PROJECTION
-    // Calculate the scale required at this particle's Z depth 
-    // so it perfectly aligns with the target X/Y from the camera's final POV.
     float s = (uFinalCameraZ - aZ) / uFinalCameraZ;
-    
     vec3 finalPos = vec3(aTargetXY.x * s, aTargetXY.y * s, aZ);
-    
-    // Apply jitter and ease it out
     vec3 currentPos = mix(finalPos + aJitter, finalPos, settle);
 
-    // 3. QUAD SCALING
-    // Scale the 1x1 base plane so it tiles perfectly.
-    // We add a tiny 1.05x overlap multiplier to prevent hairline seams.
-    float quadW = (uPlaneW / uCols) * s * 1.05;
-    float quadH = (uPlaneH / uRows) * s * 1.05;
-    
+    // 3. QUAD SCALING — tight tiles with slight overlap
+    float quadW = (uPlaneW / uCols) * s * 1.04;
+    float quadH = (uPlaneH / uRows) * s * 1.04;
+
     vec3 scaledPos = position * vec3(quadW, quadH, 1.0);
     vec3 worldPos = scaledPos + currentPos;
 
-    // 4. PRECISE UV MAPPING
-    // Map the 0-1 local quad UV to the exact sub-region of the main image texture
+    vWorldPos = currentPos;
+
+    // 4. UV MAPPING
     vUv = aUV + (uv - 0.5) * vec2(1.0 / uCols, 1.0 / uRows);
+
+    // 5. DEPTH-BASED ATMOSPHERIC FADE
+    // Particles farther from camera are hazier/softer (fog effect)
+    float camDist = uFinalCameraZ - aZ;
+    float normalizedDist = clamp(camDist / uFinalCameraZ, 0.0, 1.0);
+    vDepthFade = mix(1.0, 0.55, normalizedDist * normalizedDist);
 
     vec4 mvPosition = modelViewMatrix * vec4(worldPos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
@@ -57,55 +62,67 @@ export const instancedFragmentShader = /* glsl */ `
   precision highp float;
 
   uniform sampler2D uImage;
-  
-  varying vec2 vUv;
-  varying float vRadial;
-  varying float vProgress;
-  varying float vDepth;
+  uniform float uProgress;
 
-  // Hash for noise
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+  varying vec2 vUv;
+  varying vec2 vLocalUv;
+  varying float vDepth;
+  varying vec3 vWorldPos;
+  varying float vDepthFade;
 
   void main() {
-    // Exact crop from the original image
-    vec4 texColor = texture2D(uImage, vUv);
-    
-    // Wave Timings based on global progress
-    // Wave 1: Dark to Tint (0.1 to 0.5)
-    // Wave 2: Tint to Full Color (0.4 to 0.8)
-    // Wave 3: Circle to Square Image Resolve (0.7 to 1.0)
-    
-    // Offset by radial distance to create the sweeping effect
-    float radialOffset = vRadial * 0.3; // Center finishes first, edges later
-    
-    float wave1 = smoothstep(0.1 + radialOffset, 0.4 + radialOffset, vProgress);
-    float wave2 = smoothstep(0.4 + radialOffset, 0.7 + radialOffset, vProgress);
-    float resolve = smoothstep(0.7 + radialOffset, 0.95 + radialOffset, vProgress);
+    // ── CIRCULAR SOFT PARTICLE MASK ──
+    // Tight Gaussian-like falloff — reads as fine grain, not squares
+    vec2 d = vLocalUv - 0.5;
+    float r = length(d) * 2.0;
+    float circle = exp(-r * r * 6.0);
+    circle = smoothstep(0.02, 0.6, circle);
 
-    // Color definitions
-    vec3 darkCol = texColor.rgb * 0.05 + vec3(0.01, 0.01, 0.02);
-    // Tint color (muted cyan/purple blend based on depth)
-    vec3 tintCol = mix(vec3(0.2, 0.1, 0.3), vec3(0.1, 0.3, 0.3), vDepth > 0.0 ? 1.0 : 0.0);
-    tintCol = mix(darkCol, tintCol * texColor.rgb * 3.0, 0.5);
+    // ── ACCURATE IMAGE COLOR ──
+    vec3 texColor = texture2D(uImage, vUv).rgb;
 
-    // Mix stages
-    vec3 finalColor = mix(darkCol, tintCol, wave1);
-    finalColor = mix(finalColor, texColor.rgb, wave2);
+    // ── TRUE 3D RADIAL COLOR WAVE ──
+    float dist3D = length(vWorldPos);
+    float maxDist = 120.0;
+    float normDist = dist3D / maxDist;
 
-    // Shape: Starts as a soft circle, resolves into the hard square pixel
-    vec2 localUV = fract(vUv * vec2(1000.0)); // Approximate local quad UV
-    float dist = length(gl_PointCoord - 0.5); // Fallback if needed, but we have geometry
-    
-    // Calculate distance from center of the quad (uv is roughly fract of scaled uvs)
-    // For InstancedMesh, vUv isn't locally 0-1, so we calculate center dist:
-    // Actually, it's easier to pass local uv from vertex, but we can just use 
-    // a rounded box formula. To save complexity, we'll just alpha fade the edges initially.
-    
-    float alpha = 1.0;
-    
-    // Depth fading so far things don't look completely black
-    float depthFade = clamp(1.0 - (vDepth - 50.0) / -100.0, 0.3, 1.0);
+    float waveFront = smoothstep(0.03, 0.92, uProgress) * 1.35;
+    float falloff = 0.4;
+    float waveHit = smoothstep(waveFront - falloff, waveFront, normDist);
+    float wp = (1.0 - waveHit) * smoothstep(0.0, 0.12, uProgress);
 
-    gl_FragColor = vec4(finalColor, alpha);
+    // ── COLOR STAGES — accurate photographic color throughout ──
+    // Dark base: image color at very low brightness (not tinted)
+    vec3 dark = texColor * 0.035 + vec3(0.005, 0.005, 0.01);
+
+    // Dim: slightly brighter, still desaturated, true-to-image luminance
+    float luma = dot(texColor, vec3(0.299, 0.587, 0.114));
+    vec3 dim = mix(dark, vec3(luma * 0.25), 0.5);
+
+    // Lit: desaturated warm version of real image color
+    vec3 lit = mix(dim, texColor * 0.7, 0.6);
+
+    // Full: pure image color — zero tinting, zero color shift
+    vec3 full = texColor;
+
+    float s1 = smoothstep(0.0, 0.35, wp);
+    float s2 = smoothstep(0.25, 0.65, wp);
+    float s3 = smoothstep(0.55, 1.0, wp);
+
+    vec3 color = mix(dark, dim, s1);
+    color = mix(color, lit, s2);
+    color = mix(color, full, s3);
+
+    // ── DEPTH-BASED ATMOSPHERE ──
+    // Far particles: hazier, lower contrast, slightly desaturated
+    float depthAtmos = vDepthFade;
+    vec3 atmosColor = mix(vec3(luma) * 0.3, color, depthAtmos);
+    color = mix(atmosColor, color, smoothstep(0.3, 0.9, wp));
+
+    // ── FINAL ALPHA ──
+    float baseAlpha = smoothstep(0.0, 0.06, uProgress) * vDepthFade;
+    float alpha = circle * baseAlpha;
+
+    gl_FragColor = vec4(color * alpha, alpha);
   }
 `;

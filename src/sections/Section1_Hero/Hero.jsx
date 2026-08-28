@@ -10,7 +10,9 @@ const Hero = () => {
 
     const handleLoaderComplete = useCallback(() => setLoaderDone(true), []);
     const handleSceneReady = useCallback(() => {
-        setTimeout(() => setSceneReady(true), 3500);
+        // FIX: Zero delay — scene is ready the moment particles are initialized.
+        // No dead-air pause. The single continuous timeline starts immediately.
+        setSceneReady(true);
     }, []);
 
     return (

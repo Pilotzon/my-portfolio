@@ -92,6 +92,7 @@ const Loader = ({ onComplete }) => {
             window.removeEventListener('resize', resize);
             cancelAnimationFrame(animationFrame);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [onComplete]);
 
     return (

@@ -2,18 +2,31 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { sampleImageForInstancing } from '../../utils/imageSampler';
 import { instancedVertexShader, instancedFragmentShader } from '../../utils/shaders';
+import { createPostProcessing } from '../../utils/postProcessing';
 import Text3D from '../Text3D/Text3D';
 import './ParticleScene.css';
 
 const IMAGE_URL = '/hero-bg.jpg';
-const TOTAL_DURATION = 9500;
+const TOTAL_DURATION = 12000;
 
-const easeInOutQuint = (t) => t < 0.5 ? 16 * t * t * t * t * t : 1 - Math.pow(-2 * t + 2, 5) / 2;
+/**
+ * Single smooth cinematic easing — one continuous curve.
+ * Slow weighted start, smooth middle, gentle deceleration landing.
+ * No segments, no transitions between phases.
+ */
+const cinematicEase = (t) => {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    // Quintic ease-in-out — extremely smooth, no visible phase boundaries
+    return t < 0.5
+        ? 16 * t * t * t * t * t
+        : 1 - Math.pow(-2 * t + 2, 5) / 2;
+};
 
 const ParticleScene = ({ onReady }) => {
     const mountRef = useRef(null);
     const [progress, setProgress] = useState(0);
-    const [imageSrc, setImageSrc] = useState(null);
+    const [sceneData, setSceneData] = useState(null);
 
     useEffect(() => {
         const mount = mountRef.current;
@@ -22,10 +35,11 @@ const ParticleScene = ({ onReady }) => {
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
         mount.appendChild(renderer.domElement);
 
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x020203); // Start near black
+        scene.background = new THREE.Color(0x010102);
 
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 4000);
 
@@ -34,6 +48,7 @@ const ParticleScene = ({ onReady }) => {
         let bgMesh = null;
         let bgMaterial = null;
         let finalCameraZ = 150;
+        let postFX = null;
 
         let disposed = false;
         let started = false;
@@ -44,39 +59,34 @@ const ParticleScene = ({ onReady }) => {
             const aspect = window.innerWidth / window.innerHeight;
             const dH = planeH / 2 / Math.tan(vFov / 2);
             const dW = planeW / 2 / Math.tan(vFov / 2) / aspect;
-            return Math.min(dH, dW) * 0.95; // 5% crop
+            return Math.min(dH, dW) * 0.95;
         };
 
-        // Load Image & Create GPU Instances
-        sampleImageForInstancing(IMAGE_URL, 450).then((data) => {
+        sampleImageForInstancing(IMAGE_URL, 800).then((data) => {
             if (disposed) return;
-            setImageSrc(IMAGE_URL);
 
             finalCameraZ = computeFillDistance(data.planeW, data.planeH);
 
-            // Base Geometry (a simple 1x1 plane)
             const baseGeom = new THREE.PlaneGeometry(1, 1);
-
             const geom = new THREE.InstancedBufferGeometry();
             geom.index = baseGeom.index;
             geom.attributes.position = baseGeom.attributes.position;
             geom.attributes.uv = baseGeom.attributes.uv;
 
-            // Instance Attributes
             geom.setAttribute('aTargetXY', new THREE.InstancedBufferAttribute(data.targetXY, 2));
             geom.setAttribute('aZ', new THREE.InstancedBufferAttribute(data.instanceZ, 1));
             geom.setAttribute('aJitter', new THREE.InstancedBufferAttribute(data.instanceJitter, 3));
             geom.setAttribute('aUV', new THREE.InstancedBufferAttribute(data.instanceUV, 2));
             geom.setAttribute('aRadial', new THREE.InstancedBufferAttribute(data.radial, 1));
 
-            // Load main texture
             const texLoader = new THREE.TextureLoader();
             const mainTex = texLoader.load(IMAGE_URL);
             mainTex.colorSpace = THREE.SRGBColorSpace;
 
             material = new THREE.ShaderMaterial({
                 transparent: true,
-                depthWrite: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
                 vertexShader: instancedVertexShader,
                 fragmentShader: instancedFragmentShader,
                 uniforms: {
@@ -86,28 +96,32 @@ const ParticleScene = ({ onReady }) => {
                     uCols: { value: data.cols },
                     uRows: { value: data.rows },
                     uPlaneW: { value: data.planeW },
-                    uPlaneH: { value: data.planeH }
-                }
+                    uPlaneH: { value: data.planeH },
+                },
             });
 
             instancedMesh = new THREE.Mesh(geom, material);
-            instancedMesh.frustumCulled = false; // Important for instancing
+            instancedMesh.frustumCulled = false;
             scene.add(instancedMesh);
 
-            // Blurred Background Wash (Behind everything)
+            // Blurred background wash
             const bgGeom = new THREE.PlaneGeometry(data.planeW * 3, data.planeH * 3);
             bgMaterial = new THREE.MeshBasicMaterial({
                 map: data.bgTex,
                 transparent: true,
                 opacity: 0,
-                depthWrite: false
+                depthWrite: false,
             });
             bgMesh = new THREE.Mesh(bgGeom, bgMaterial);
             bgMesh.position.z = -500;
             scene.add(bgMesh);
 
-            console.log(`Rendered Quads: ${data.count}`);
+            postFX = createPostProcessing(renderer, scene, camera);
+            setSceneData({ scene, camera });
 
+            console.log(`Particles: ${data.count}`);
+
+            // Zero delay — start immediately
             started = true;
             startTime = performance.now();
             if (onReady) onReady();
@@ -117,11 +131,7 @@ const ParticleScene = ({ onReady }) => {
             renderer.setSize(window.innerWidth, window.innerHeight);
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
-            if (material) {
-                // Recompute Z so image remains full screen
-                // Note: uPlaneW/H would need to be in state/ref to recompute perfectly, 
-                // but for safety we'll skip recalculating mid-animation.
-            }
+            if (postFX) postFX.setSize(window.innerWidth, window.innerHeight);
         };
         window.addEventListener('resize', onResize);
 
@@ -135,43 +145,31 @@ const ParticleScene = ({ onReady }) => {
 
             const elapsed = performance.now() - startTime;
             const rawT = Math.min(elapsed / TOTAL_DURATION, 1.0);
-
-            // ── SINGLE MASTER EASING ──
-            const t = easeInOutQuint(rawT);
+            const t = cinematicEase(rawT);
             setProgress(t);
 
-            // ── CAMERA ORBIT (Driven strictly by 't') ──
-            // Angle: Starts at -45 deg (-PI/4), sweeps to 0.
-            const angle = (1 - t) * (-Math.PI * 0.25);
-
-            // Radius: Starts far, sweeps into the exact calculated finalCameraZ
-            const radius = finalCameraZ + (1 - t) * 120;
-
-            // Height: Starts high, swoops down
-            const height = (1 - t) * 60;
+            // ── SINGLE CONTINUOUS CAMERA MOTION ──
+            // Slow orbit from upper-right, settling gently into final position
+            const angle = (1 - t) * (-Math.PI * 0.2);
+            const radius = finalCameraZ + (1 - t) * 10;
+            const height = (1 - t) * 5;
 
             camera.position.x = Math.sin(angle) * radius;
             camera.position.y = height;
             camera.position.z = Math.cos(angle) * radius;
 
-            // Look slightly off center initially, resolve to center
-            camera.lookAt(
-                (1 - t) * -20,
-                (1 - t) * -10,
-                0
-            );
+            camera.lookAt(0, 0, 0);
 
-            // ── UPDATE UNIFORMS ──
-            if (material) {
-                material.uniforms.uProgress.value = t;
+            if (material) material.uniforms.uProgress.value = t;
+            if (bgMaterial) bgMaterial.opacity = t * 0.35;
+
+            if (postFX) {
+                postFX.update(t, elapsed * 0.001);
+                postFX.render();
+            } else {
+                renderer.render(scene, camera);
             }
 
-            // Fade in the blurred color wash in the background
-            if (bgMaterial) {
-                bgMaterial.opacity = t * 0.4; // Peaks at 40% opacity
-            }
-
-            renderer.render(scene, camera);
             raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
@@ -180,6 +178,7 @@ const ParticleScene = ({ onReady }) => {
             disposed = true;
             cancelAnimationFrame(raf);
             window.removeEventListener('resize', onResize);
+            if (postFX) postFX.dispose();
             if (instancedMesh) {
                 instancedMesh.geometry.dispose();
                 material.dispose();
@@ -192,7 +191,13 @@ const ParticleScene = ({ onReady }) => {
     return (
         <>
             <div ref={mountRef} className="particle-scene" />
-            <Text3D progress={progress} />
+            {sceneData && (
+                <Text3D
+                    scene={sceneData.scene}
+                    camera={sceneData.camera}
+                    progress={progress}
+                />
+            )}
         </>
     );
 };
