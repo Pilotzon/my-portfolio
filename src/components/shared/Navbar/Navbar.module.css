@@ -1,6 +1,6 @@
 .navbar {
   position: fixed;
-  z-index: 30;
+  z-index: 110;
   top: 0;
   right: 0;
   left: 0;
@@ -10,6 +10,8 @@
   min-height: var(--nav-height);
   padding: 0 var(--page-gutter);
   pointer-events: none;
+  transform: translateY(-100%);
+  animation: navbarSlideDown var(--nav-slide-duration) var(--nav-slide-ease) forwards;
 }
 
 .brand,
@@ -41,6 +43,23 @@
 .link:focus-visible,
 .active {
   color: var(--color-ink);
+}
+
+@keyframes navbarSlideDown {
+  from {
+    transform: translateY(-100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navbar {
+    transform: translateY(0);
+    animation: none;
+  }
 }
 
 @media (max-width: 38rem) {

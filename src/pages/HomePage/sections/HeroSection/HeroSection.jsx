@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Component, useState } from 'react';
 import Loader from '../../../../components/shared/Loader/Loader.jsx';
 import { heroConfig } from './constants/heroConfig.js';
 import useImageSampler from './hooks/useImageSampler.js';
@@ -24,6 +24,26 @@ function StaticHero({ source, onError }) {
   );
 }
 
+class HeroCanvasBoundary extends Component {
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  componentDidCatch(error) {
+    console.error('Hero canvas failed; using the static image fallback.', error);
+    this.props.onError?.(error);
+  }
+
+  render() {
+    return this.state.hasError ? this.props.fallback : this.props.children;
+  }
+}
+
 export default function HeroSection({ imageSource = heroConfig.imageSource }) {
   const quality = useQualityTier();
   const reducedMotion = useReducedMotion();
@@ -31,10 +51,11 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
   const [imageFailed, setImageFailed] = useState(false);
   const [contextStatus, setContextStatus] = useState('ready');
   const [loaderComplete, setLoaderComplete] = useState(false);
+  const [canvasFailed, setCanvasFailed] = useState(false);
   const animationDisabled = reducedMotion || !webglAvailable;
   const source = imageFailed ? makeFallbackDataUrl() : imageSource;
   const imageResult = useImageSampler(imageSource, quality, !animationDisabled);
-  const staticMode = animationDisabled || imageResult.status === 'error';
+  const staticMode = animationDisabled || imageResult.status === 'error' || canvasFailed;
 
   return (
     <section className={styles.hero} aria-labelledby="hero-title">
@@ -46,21 +67,26 @@ export default function HeroSection({ imageSource = heroConfig.imageSource }) {
         {staticMode ? (
           <StaticHero source={source} onError={() => setImageFailed(true)} />
         ) : imageResult.status === 'ready' ? (
-          <UnifiedTimelineProvider ready={heroConfig.timeline.autoStart}>
-            <ParticleCanvas
-              assets={imageResult.assets}
-              quality={quality}
-              onContextStatus={setContextStatus}
-            />
-          </UnifiedTimelineProvider>
-        ) : null}
+          <HeroCanvasBoundary
+            fallback={<StaticHero source={source} onError={() => setImageFailed(true)} />}
+            onError={() => setCanvasFailed(true)}
+          >
+            <UnifiedTimelineProvider ready={heroConfig.timeline.autoStart}>
+              <ParticleCanvas
+                assets={imageResult.assets}
+                quality={quality}
+                onContextStatus={setContextStatus}
+                onCanvasError={() => setCanvasFailed(true)}
+              />
+            </UnifiedTimelineProvider>
+          </HeroCanvasBoundary>
+        ) : (
+          <StaticHero source={source} onError={() => setImageFailed(true)} />
+        )}
       </div>
 
       {!staticMode && !loaderComplete && (
-        <Loader
-          ready={imageResult.status === 'ready'}
-          onComplete={() => setLoaderComplete(true)}
-        />
+        <Loader onComplete={() => setLoaderComplete(true)} />
       )}
 
       {contextStatus === 'lost' && !staticMode && (

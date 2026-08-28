@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { heroConfig } from '../constants/heroConfig.js';
@@ -30,7 +30,9 @@ function Scene({ assets, quality }) {
     <>
       <ImagePlane assets={assets} />
       <ParticleField assets={assets} quality={quality} />
-      <HeroText />
+      <Suspense fallback={null}>
+        <HeroText />
+      </Suspense>
       <PostFX quality={quality} />
     </>
   );
@@ -63,7 +65,7 @@ function WebGLLifecycle({ onContextStatus }) {
   return null;
 }
 
-export default function ParticleCanvas({ assets, quality, onContextStatus }) {
+export default function ParticleCanvas({ assets, quality, onCanvasError, onContextStatus }) {
   const cameraPathDistance = assets.planeWidth * heroConfig.camera.initialDistanceFactor;
   const depthSpan = assets.particles.depthSpan;
 
@@ -83,6 +85,7 @@ export default function ParticleCanvas({ assets, quality, onContextStatus }) {
         powerPreference: 'high-performance',
       }}
       onCreated={({ gl }) => {
+        gl.debug.onShaderError = () => onCanvasError?.();
         gl.outputColorSpace = THREE.SRGBColorSpace;
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1;

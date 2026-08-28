@@ -7,4 +7,6 @@
   --font-body: 'Space Grotesk', 'Helvetica Neue', sans-serif;
   --page-gutter: clamp(1.25rem, 4vw, 4rem);
   --nav-height: 4.75rem;
+  --nav-slide-duration: 900ms;
+  --nav-slide-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
